@@ -1011,12 +1011,14 @@ function buildScene() {
   if (typeof THREE === 'undefined') return;
 
   scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0x0e0604, 8, 45);
-  scene.background = new THREE.Color(0x0e0604);
+  // Very light warm fog — only kicks in at 40+ units so room is fully visible
+  scene.fog = new THREE.Fog(0x1a0c06, 40, 75);
+  scene.background = new THREE.Color(0x1a0c06);
 
-  // Camera
-  camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 60);
-  camera.position.set(0, PLAYER_HEIGHT, 12);
+  // Camera — spawn in centre of room, facing into the hall (looking toward shelves)
+  camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 80);
+  camera.position.set(0, PLAYER_HEIGHT, 8);
+  yaw = 0; pitch = 0;
 
   // Renderer
   const canvas = document.getElementById('three-canvas');
@@ -1028,31 +1030,50 @@ function buildScene() {
   }
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.9;
+  renderer.shadowMap.enabled = false; // off for perf — lighting provides enough depth
+  renderer.toneMapping = THREE.ReinhardToneMapping;
+  renderer.toneMappingExposure = 1.3;
 
-  // Lights
-  scene.add(new THREE.AmbientLight(0x3d1f08, 1.2));
+  // ── LIGHTS ──────────────────────────────────────────────────────────────────
+  // Strong ambient so everything is always visible
+  scene.add(new THREE.AmbientLight(0xfff0d0, 2.2));
 
-  const chandelierLight = new THREE.PointLight(0xf5c872, 3, 35);
-  chandelierLight.position.set(0, 7.5, 0);
-  chandelierLight.castShadow = true;
-  scene.add(chandelierLight);
+  // Hemisphere fill (warm top, dark warm ground)
+  const hemi = new THREE.HemisphereLight(0xffeebb, 0x4a2808, 1.6);
+  scene.add(hemi);
 
-  const candleL = new THREE.PointLight(0xf08030, 1.5, 12);
-  candleL.position.set(-12, 3, -5);
-  scene.add(candleL);
+  // Chandelier lights spaced along the hall ceiling
+  const lightPositions = [
+    [0, 7.2,  8],
+    [0, 7.2, -4],
+    [0, 7.2,-16],
+    [0, 7.2,-28],
+  ];
+  lightPositions.forEach(([lx,ly,lz]) => {
+    const l = new THREE.PointLight(0xffc87a, 5, 28);
+    l.position.set(lx, ly, lz);
+    scene.add(l);
+    // Visual lantern orb
+    const orb = new THREE.Mesh(
+      new THREE.SphereGeometry(0.22, 8, 8),
+      new THREE.MeshStandardMaterial({ color: 0xffe080, emissive: 0xffc840, emissiveIntensity: 2.5 })
+    );
+    orb.position.set(lx, ly - 0.05, lz);
+    scene.add(orb);
+  });
 
-  const candleR = new THREE.PointLight(0xf08030, 1.5, 12);
-  candleR.position.set(12, 3, -5);
-  scene.add(candleR);
+  // Wall-sconce warm fill lights
+  [[-13,3,-5],[13,3,-5],[-13,3,-20],[13,3,-20]].forEach(([lx,ly,lz]) => {
+    const l = new THREE.PointLight(0xff9040, 2.5, 14);
+    l.position.set(lx, ly, lz);
+    scene.add(l);
+  });
 
   buildRoom();
   buildShelves();
   buildFloorBooks();
-  buildPortal();
+  buildStaircase();
+  buildBohemianDecor();
 
   window.addEventListener('resize', onResize);
   animate();
@@ -1061,18 +1082,82 @@ function buildScene() {
 // Room dimensions: x: -15..15, z: -35..15, y: 0..8
 const ROOM = { x1: -15, x2: 15, z1: -35, z2: 15, h: 8 };
 
+function makeRugTexture(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  if (!ctx) return c;
+
+  // Deep burgundy base
+  ctx.fillStyle = '#3a0e1a';
+  ctx.fillRect(0, 0, w, h);
+
+  // Main field — deep jewel teal
+  ctx.fillStyle = '#1a3a38';
+  ctx.fillRect(w*0.07, h*0.07, w*0.86, h*0.86);
+
+  // Outer border stripe — gold
+  ctx.strokeStyle = '#c8a020';
+  ctx.lineWidth = w * 0.025;
+  ctx.strokeRect(w*0.04, h*0.04, w*0.92, h*0.92);
+
+  // Inner border stripe — rust
+  ctx.strokeStyle = '#8a2010';
+  ctx.lineWidth = w * 0.018;
+  ctx.strokeRect(w*0.10, h*0.10, w*0.80, h*0.80);
+
+  // Diamond medallion in centre
+  ctx.save();
+  ctx.translate(w/2, h/2);
+  ctx.rotate(Math.PI/4);
+  ctx.fillStyle = '#7a1a30';
+  ctx.fillRect(-w*0.14, -h*0.08, w*0.28, h*0.16);
+  ctx.fillStyle = '#c8a020';
+  ctx.fillRect(-w*0.04, -h*0.04, w*0.08, h*0.08);
+  ctx.restore();
+
+  // Corner motifs
+  [[0.17,0.15],[0.83,0.15],[0.17,0.85],[0.83,0.85]].forEach(([fx,fy]) => {
+    ctx.save();
+    ctx.translate(fx*w, fy*h);
+    ctx.fillStyle = '#7a1a30';
+    ctx.beginPath();
+    ctx.arc(0, 0, w*0.055, 0, Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = '#c8a020';
+    ctx.lineWidth = w*0.012;
+    ctx.beginPath();
+    ctx.arc(0, 0, w*0.055, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.restore();
+  });
+
+  // Running geometric repeat along sides
+  const nRep = 5;
+  for (let i = 0; i < nRep; i++) {
+    const t = (i + 0.5) / nRep;
+    // top/bottom bands
+    [0.065, 0.935].forEach(fy => {
+      ctx.fillStyle = i % 2 === 0 ? '#8a2010' : '#c8a020';
+      ctx.fillRect((t - 0.06)*w, (fy - 0.012)*h, w*0.12, h*0.024);
+    });
+  }
+  return c;
+}
+
 function buildRoom() {
   const woodFloorCanvas = makeWoodTexture(512, 512, '#2c1a08', '#4a2e10');
   const woodFloorTex = canvasToTexture(woodFloorCanvas);
-  if (woodFloorTex) { woodFloorTex.wrapS = woodFloorTex.wrapT = THREE.RepeatWrapping; woodFloorTex.repeat.set(8, 16); }
+  if (woodFloorTex) { woodFloorTex.wrapS = woodFloorTex.wrapT = THREE.RepeatWrapping; woodFloorTex.repeat.set(6, 14); }
 
+  // Warmer, richer wall plaster — warm ochre-stone
   const stoneCanvas = makeStoneTexture(512, 512);
   const stoneTex = canvasToTexture(stoneCanvas);
-  if (stoneTex) { stoneTex.wrapS = stoneTex.wrapT = THREE.RepeatWrapping; stoneTex.repeat.set(4, 3); }
+  if (stoneTex) { stoneTex.wrapS = stoneTex.wrapT = THREE.RepeatWrapping; stoneTex.repeat.set(3, 2); }
 
-  const woodCeilCanvas = makeWoodTexture(512, 512, '#1a0c04', '#2c1a08');
+  const woodCeilCanvas = makeWoodTexture(512, 512, '#1e0e06', '#3a1e08');
   const woodCeilTex = canvasToTexture(woodCeilCanvas);
-  if (woodCeilTex) { woodCeilTex.wrapS = woodCeilTex.wrapT = THREE.RepeatWrapping; woodCeilTex.repeat.set(6, 16); }
+  if (woodCeilTex) { woodCeilTex.wrapS = woodCeilTex.wrapT = THREE.RepeatWrapping; woodCeilTex.repeat.set(5, 14); }
 
   const W = ROOM.x2 - ROOM.x1;
   const D = ROOM.z2 - ROOM.z1;
@@ -1080,52 +1165,64 @@ function buildRoom() {
   const cx = (ROOM.x1 + ROOM.x2) / 2;
   const cz = (ROOM.z1 + ROOM.z2) / 2;
 
-  // Floor
+  // Floor — warm dark wood, well lit
   const floorGeo = new THREE.PlaneGeometry(W, D);
-  const floorMat = new THREE.MeshStandardMaterial({ map: woodFloorTex, roughness: 0.85, metalness: 0.05 });
+  const floorMat = new THREE.MeshStandardMaterial({ map: woodFloorTex, roughness: 0.75, metalness: 0.08, color: 0x8b5a2b });
   const floor = new THREE.Mesh(floorGeo, floorMat);
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(cx, 0, cz);
-  floor.receiveShadow = true;
   scene.add(floor);
 
-  // Ceiling
+  // Bohemian rug — spans most of centre floor
+  const rugC = makeRugTexture(512, 512);
+  const rugTex = canvasToTexture(rugC);
+  if (rugTex) {
+    const rugGeo = new THREE.PlaneGeometry(W * 0.6, D * 0.7);
+    const rugMat = new THREE.MeshStandardMaterial({ map: rugTex, roughness: 0.9, color: 0xffffff });
+    const rug = new THREE.Mesh(rugGeo, rugMat);
+    rug.rotation.x = -Math.PI / 2;
+    rug.position.set(cx, 0.005, cz);
+    scene.add(rug);
+  }
+
+  // Ceiling — dark rich wood
   const ceilGeo = new THREE.PlaneGeometry(W, D);
-  const ceilMat = new THREE.MeshStandardMaterial({ map: woodCeilTex, roughness: 0.9, metalness: 0.0, side: THREE.BackSide });
+  const ceilMat = new THREE.MeshStandardMaterial({ map: woodCeilTex, roughness: 0.9, color: 0x5a3010, side: THREE.BackSide });
   const ceil = new THREE.Mesh(ceilGeo, ceilMat);
   ceil.rotation.x = Math.PI / 2;
   ceil.position.set(cx, H, cz);
   scene.add(ceil);
 
-  // Walls (stone)
-  const wallMat = new THREE.MeshStandardMaterial({ map: stoneTex, roughness: 0.9, metalness: 0.02 });
+  // Walls — warm ochre plaster with dark wood wainscoting
+  const wallMat = new THREE.MeshStandardMaterial({ map: stoneTex, roughness: 0.85, metalness: 0.02, color: 0xa07050 });
 
-  // Back wall (z = z1)
-  const bwGeo = new THREE.PlaneGeometry(W, H);
-  const bw = new THREE.Mesh(bwGeo, wallMat);
-  bw.position.set(cx, H/2, ROOM.z1);
-  scene.add(bw);
+  // Back wall
+  const bw = new THREE.Mesh(new THREE.PlaneGeometry(W, H), wallMat);
+  bw.position.set(cx, H/2, ROOM.z1); scene.add(bw);
 
-  // Front wall (z = z2)
-  const fwGeo = new THREE.PlaneGeometry(W, H);
-  const fw = new THREE.Mesh(fwGeo, wallMat);
-  fw.position.set(cx, H/2, ROOM.z2);
-  fw.rotation.y = Math.PI;
-  scene.add(fw);
+  // Front wall
+  const fw = new THREE.Mesh(new THREE.PlaneGeometry(W, H), wallMat);
+  fw.position.set(cx, H/2, ROOM.z2); fw.rotation.y = Math.PI; scene.add(fw);
 
-  // Left wall (x = x1)
-  const lwGeo = new THREE.PlaneGeometry(D, H);
-  const lw = new THREE.Mesh(lwGeo, wallMat);
-  lw.position.set(ROOM.x1, H/2, cz);
-  lw.rotation.y = Math.PI / 2;
-  scene.add(lw);
+  // Left wall
+  const lw = new THREE.Mesh(new THREE.PlaneGeometry(D, H), wallMat);
+  lw.position.set(ROOM.x1, H/2, cz); lw.rotation.y = Math.PI / 2; scene.add(lw);
 
-  // Right wall (x = x2)
-  const rwGeo = new THREE.PlaneGeometry(D, H);
-  const rw = new THREE.Mesh(rwGeo, wallMat);
-  rw.position.set(ROOM.x2, H/2, cz);
-  rw.rotation.y = -Math.PI / 2;
-  scene.add(rw);
+  // Right wall
+  const rw = new THREE.Mesh(new THREE.PlaneGeometry(D, H), wallMat);
+  rw.position.set(ROOM.x2, H/2, cz); rw.rotation.y = -Math.PI / 2; scene.add(rw);
+
+  // Dark wood wainscoting panels along lower walls (bohemian trim)
+  const wainMat = new THREE.MeshStandardMaterial({ color: 0x3a1e08, roughness: 0.7, metalness: 0.06 });
+  const wainH = 1.1;
+  [[cx,ROOM.z1,0],[cx,ROOM.z2,Math.PI]].forEach(([wx,wz,ry]) => {
+    const w2 = new THREE.Mesh(new THREE.BoxGeometry(W, wainH, 0.08), wainMat);
+    w2.position.set(wx, wainH/2, wz + (ry===0?0.05:-0.05)); w2.rotation.y = ry; scene.add(w2);
+  });
+  [[ROOM.x1,cz,Math.PI/2],[ROOM.x2,cz,-Math.PI/2]].forEach(([wx,wz,ry]) => {
+    const w2 = new THREE.Mesh(new THREE.BoxGeometry(D, wainH, 0.08), wainMat);
+    w2.position.set(wx + (ry>0?0.05:-0.05), wainH/2, wz); w2.rotation.y = ry; scene.add(w2);
+  });
 }
 
 // Shelf materials (shared)
@@ -1229,12 +1326,12 @@ function placeShelfSection(sec, wallX, startZ, side) {
       scene.add(board);
     }
 
-    // Slot mesh (ghost slot)
+    // Slot mesh (ghost slot — visible empty space on shelf)
     const slotGeo = new THREE.BoxGeometry(BOOK_D + 0.01, BOOK_H, BOOK_W);
     const slotMat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(sec.color),
-      transparent: true, opacity: 0.18,
-      roughness: 0.9
+      transparent: true, opacity: 0.28,
+      roughness: 0.9, emissive: new THREE.Color(sec.color), emissiveIntensity: 0.08
     });
     const slot = new THREE.Mesh(slotGeo, slotMat);
     slot.position.set(shelfCX, shelfY, bookZ);
@@ -1286,6 +1383,8 @@ function buildFloorBooks() {
   const RX1 = ROOM.x1 + 1.5, RX2 = ROOM.x2 - 1.5;
   const RZ1 = ROOM.z1 + 1, RZ2 = ROOM.z2 - 1;
 
+  // Cluster ~60% of floor books in the middle visible area, rest spread out
+  const NEAR_Z1 = -20, NEAR_Z2 = 6; // heavily populated near spawn
   visible.forEach((book, i) => {
     const geo = new THREE.BoxGeometry(BOOK_D, BOOK_H, BOOK_W);
 
@@ -1299,18 +1398,21 @@ function buildFloorBooks() {
     });
     const mesh = new THREE.Mesh(geo, mat);
 
-    // Random scatter, avoiding walls and shelf zone
+    // Bias placement: 70% of books near spawn, 30% spread far
+    const useNear = i < visible.length * 0.7;
+    const ZA = useNear ? NEAR_Z1 : RZ1;
+    const ZB = useNear ? NEAR_Z2 : ROOM.z2 - 1;
+    // Keep away from room centre aisle X (-4..4) so player can walk
     let px, pz, attempts = 0;
     do {
       px = RX1 + Math.random() * (RX2 - RX1);
-      pz = RZ1 + Math.random() * (RZ2 - RZ1);
+      pz = ZA + Math.random() * (ZB - ZA);
       attempts++;
-    } while (attempts < 20 && isInShelfZone(px, pz));
+    } while (attempts < 25 && (isInShelfZone(px, pz) || (Math.abs(px) < 3.5 && pz > -25)));
 
     mesh.position.set(px, BOOK_H / 2 + 0.02, pz);
     mesh.rotation.y = Math.random() * Math.PI * 2;
-    mesh.rotation.z = (Math.random() - 0.5) * 0.4;
-    mesh.castShadow = true;
+    mesh.rotation.z = (Math.random() - 0.5) * 0.45;
     mesh.userData = { type: 'floor', bookId: book.id };
     scene.add(mesh);
     floorBookMeshes[book.id] = mesh;
@@ -1327,38 +1429,121 @@ function isInShelfZone(x, z) {
   return false;
 }
 
-function buildPortal() {
-  // A glowing arch/door at z near z1 to switch floors
-  const portalGeo = new THREE.BoxGeometry(2.5, 4, 0.15);
-  const portalMat = new THREE.MeshStandardMaterial({
-    color: 0xd4a017, emissive: 0xc8840a, emissiveIntensity: 0.8,
-    transparent: true, opacity: 0.75
-  });
-  const portal = new THREE.Mesh(portalGeo, portalMat);
-  portal.position.set(0, 2, ROOM.z1 + 0.3);
-  scene.add(portal);
+// Staircase state
+let stairCooldown = 0;
 
-  // Portal label
+function buildStaircase() {
+  // Visible wooden staircase at far-left corner going "up" to floor 2
+  // Stairs run from z=-28 to z=-32 on the left side (x: -15..-8)
+  const STAIR_X = -11.5;
+  const STAIR_Z_START = -26;
+  const NSTEPS = 8;
+  const STEP_D = 0.65, STEP_H = 0.32, STEP_W = 4.5;
+  const mat = new THREE.MeshStandardMaterial({ color: 0x5a2e0a, roughness: 0.8, metalness: 0.1 });
+
+  for (let i = 0; i < NSTEPS; i++) {
+    const step = new THREE.Mesh(new THREE.BoxGeometry(STEP_W, STEP_H, STEP_D), mat);
+    step.position.set(STAIR_X, STEP_H/2 + i * STEP_H, STAIR_Z_START - i * STEP_D);
+    scene.add(step);
+  }
+
+  // Stair handrail posts
+  const railMat = new THREE.MeshStandardMaterial({ color: 0x3a1a08, roughness: 0.7 });
+  for (let i = 0; i <= NSTEPS; i += 2) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.9, 0.08), railMat);
+    post.position.set(STAIR_X + STEP_W/2 - 0.1, STEP_H * i + 0.45, STAIR_Z_START - i * STEP_D);
+    scene.add(post);
+  }
+
+  // Sign above stairs
   const c = document.createElement('canvas');
-  c.width = 256; c.height = 48;
+  c.width = 256; c.height = 56;
   const ctx = c.getContext('2d');
   if (ctx) {
-    ctx.fillStyle = 'rgba(20,10,4,0.0)';
-    ctx.fillRect(0, 0, 256, 48);
+    ctx.fillStyle = '#2c1a08';
+    ctx.fillRect(0, 0, 256, 56);
+    ctx.strokeStyle = '#c8a020';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(2, 2, 252, 52);
     ctx.fillStyle = '#f5c040';
-    ctx.font = 'bold 14px serif';
+    ctx.font = 'bold 15px serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('⟨ Press F to reach Floor ' + (currentFloor === 1 ? '2' : '1') + ' ⟩', 128, 24);
+    ctx.fillText('↑ Floor ' + (currentFloor === 1 ? '2' : '1') + ' — Walk up stairs', 128, 28);
     const tex = canvasToTexture(c);
     if (tex) {
-      const mat2 = new THREE.SpriteMaterial({ map: tex, transparent: true });
-      const spr = new THREE.Sprite(mat2);
-      spr.scale.set(3, 0.6, 1);
-      spr.position.set(0, 4.5, ROOM.z1 + 0.5);
+      const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+      spr.scale.set(3.2, 0.7, 1);
+      spr.position.set(STAIR_X, NSTEPS * STEP_H + 1.5, STAIR_Z_START - NSTEPS * STEP_D);
       scene.add(spr);
     }
   }
+
+  // Glowing arch doorframe at top of stairs
+  const archMat = new THREE.MeshStandardMaterial({
+    color: 0xd4a017, emissive: 0xc8840a, emissiveIntensity: 1.2,
+    transparent: true, opacity: 0.65
+  });
+  // Left post, right post, lintel
+  [[-STEP_W/2+0.1, 0], [STEP_W/2-0.1, 0]].forEach(([ox]) => {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.18, 3.5, 0.18), archMat);
+    post.position.set(STAIR_X + ox, NSTEPS*STEP_H + 1.75, STAIR_Z_START - NSTEPS*STEP_D - 0.1);
+    scene.add(post);
+  });
+  const lintel = new THREE.Mesh(new THREE.BoxGeometry(STEP_W, 0.2, 0.2), archMat);
+  lintel.position.set(STAIR_X, NSTEPS*STEP_H + 3.5, STAIR_Z_START - NSTEPS*STEP_D - 0.1);
+  scene.add(lintel);
+}
+
+function buildBohemianDecor() {
+  // Hanging lanterns at ceiling level — warm glowing orbs between shelf sections
+  const lanternMat = new THREE.MeshStandardMaterial({
+    color: 0xffe080, emissive: 0xffa030, emissiveIntensity: 1.8,
+    transparent: true, opacity: 0.85
+  });
+
+  // Plants — simple dark green cones in corners
+  const plantMat = new THREE.MeshStandardMaterial({ color: 0x1a4020, roughness: 0.95 });
+  const potMat = new THREE.MeshStandardMaterial({ color: 0x7a3820, roughness: 0.8 });
+  const plantPositions = [[-12, 0, 10],[12, 0, 10],[-12, 0, -5],[12, 0, -5],[-12,0,-20],[12,0,-20]];
+  plantPositions.forEach(([px, py, pz]) => {
+    if (isInShelfZone(px, pz)) return;
+    // Pot
+    const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.18, 0.45, 8), potMat);
+    pot.position.set(px, 0.22, pz);
+    scene.add(pot);
+    // Plant foliage
+    const plant = new THREE.Mesh(new THREE.ConeGeometry(0.45, 1.4, 8), plantMat);
+    plant.position.set(px, 0.45 + 0.7, pz);
+    scene.add(plant);
+    const plant2 = new THREE.Mesh(new THREE.ConeGeometry(0.3, 1.0, 8), plantMat);
+    plant2.position.set(px, 0.45 + 1.2, pz);
+    scene.add(plant2);
+  });
+
+  // Small reading table near spawn
+  const tableMat = new THREE.MeshStandardMaterial({ color: 0x5a2e0a, roughness: 0.75 });
+  const table = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.08, 0.9), tableMat);
+  table.position.set(3, 0.78, 6);
+  scene.add(table);
+  const tleg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.78, 0.08), tableMat);
+  [[0.8,6.4],[0.8,5.6],[-0.8,6.4],[-0.8,5.6]].forEach(([tx,tz]) => {
+    const l = tleg.clone();
+    l.position.set(tx+3, 0.39, tz);
+    scene.add(l);
+  });
+
+  // A book pile on the table
+  const bookColors = ['#7a4a1a','#3a1a5a','#1a3a7a','#5a0a0a'];
+  bookColors.forEach((col, i) => {
+    const bm = new THREE.Mesh(
+      new THREE.BoxGeometry(0.3, 0.06, 0.22),
+      new THREE.MeshStandardMaterial({ color: new THREE.Color(col), roughness: 0.85 })
+    );
+    bm.position.set(3 + (i-1.5)*0.12, 0.82 + i*0.065, 6 + (i%2)*0.1 - 0.05);
+    bm.rotation.y = (i-1.5)*0.15;
+    scene.add(bm);
+  });
 }
 
 // ─── TEST DOM ────────────────────────────────────────────────────────────────
@@ -1468,6 +1653,17 @@ function movePlayer(dt) {
   camera.position.x = finalX;
   camera.position.z = finalZ;
   camera.position.y = PLAYER_HEIGHT;
+
+  // Staircase trigger: player walks into stair arch at back-left
+  if (stairCooldown > 0) { stairCooldown -= dt; }
+  else {
+    // Stair trigger zone (matches buildStaircase dimensions)
+    const SX1 = -14, SX2 = -9, SZ = -27.5;
+    if (finalX > SX1 && finalX < SX2 && finalZ < SZ) {
+      stairCooldown = 2.5; // prevent immediate re-trigger
+      switchFloor();
+    }
+  }
 
   // Apply look
   const euler = new THREE.Euler(pitch, yaw, 0, 'YXZ');
